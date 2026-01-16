@@ -275,6 +275,38 @@ class AlertManager:
                 "inline": False,
             })
 
+        # Add timing info if near market close
+        if signal.hours_to_close is not None and signal.hours_to_close > 0:
+            fields.append({
+                "name": "Market Close",
+                "value": f"⏰ {signal.hours_to_close:.1f} hours remaining",
+                "inline": True,
+            })
+
+        # Add odds movement info
+        if signal.price_before_trade is not None and signal.price_after_trade is not None:
+            price_change = signal.price_after_trade - signal.price_before_trade
+            direction = "📈" if price_change > 0 else "📉"
+            fields.append({
+                "name": "Price Movement",
+                "value": f"{direction} {signal.price_before_trade:.2f} → {signal.price_after_trade:.2f}",
+                "inline": True,
+            })
+
+        # Add wallet profile if available
+        if signal.wallet_profit_loss is not None:
+            pnl_emoji = "💰" if signal.wallet_profit_loss > 0 else "📉"
+            profile_text = f"{pnl_emoji} P/L: ${signal.wallet_profit_loss:+,.0f}"
+            if signal.wallet_win_rate is not None:
+                profile_text += f"\nWin Rate: {signal.wallet_win_rate:.0%}"
+            if signal.wallet_total_trades is not None:
+                profile_text += f"\nTrades: {signal.wallet_total_trades:,}"
+            fields.append({
+                "name": "Wallet Profile",
+                "value": profile_text,
+                "inline": True,
+            })
+
         # Links
         market_link = f"https://polymarket.com/event/{signal.market_slug}" if signal.market_slug else "#"
         wallet_link = f"https://polygonscan.com/address/{trade.taker_address}" if trade.taker_address else "#"
@@ -336,6 +368,12 @@ class AlertManager:
                 lines.append("👥 Cluster Activity")
             elif st == SignalType.SIZE_ANOMALY:
                 lines.append("📊 Size Anomaly")
+            elif st == SignalType.TIMING:
+                lines.append("⏰ Near Market Close")
+            elif st == SignalType.ODDS_MOVEMENT:
+                lines.append("📈 Odds Movement")
+            elif st == SignalType.CONTRARIAN:
+                lines.append("🔀 Contrarian Bet")
         return "\n".join(lines) if lines else "Unknown"
 
     def _format_signal_types_text(self, signal: Signal) -> str:
@@ -350,6 +388,12 @@ class AlertManager:
                 parts.append("Cluster")
             elif st == SignalType.SIZE_ANOMALY:
                 parts.append("Size Anomaly")
+            elif st == SignalType.TIMING:
+                parts.append(f"Near Close ({signal.hours_to_close:.0f}h)")
+            elif st == SignalType.ODDS_MOVEMENT:
+                parts.append("Odds Movement")
+            elif st == SignalType.CONTRARIAN:
+                parts.append("Contrarian")
         return " + ".join(parts) if parts else "Unknown"
 
     def get_stats(self) -> dict:

@@ -31,6 +31,24 @@ Identifies coordinated buying:
 - Within a 60-second window
 - Suggests organized accumulation
 
+### Signal D: Timing (Near Market Close)
+Detects trades placed close to market resolution:
+- Trade placed within 24 hours of market close
+- Last-minute informed trading indicator
+- Configurable threshold via `TIMING_HOURS_THRESHOLD`
+
+### Signal E: Odds Movement
+Detects trades that significantly move the market:
+- Price moves by 5+ cents after the trade
+- Indicates market-moving size or impact
+- Configurable threshold via `ODDS_MOVEMENT_THRESHOLD`
+
+### Signal F: Contrarian
+Detects large bets against market consensus:
+- When market is 70%+ in one direction
+- Large trade ($5k+) betting the opposite way
+- Often indicates confident insider information
+
 ## Filtering Pipeline
 
 Trades pass through sequential filters before signal detection:
@@ -91,13 +109,13 @@ Markets are refreshed on each bot restart to ensure coverage of the most active 
                               v
 ┌─────────────────────────────────────────────────────────────┐
 │                    Signal Detection                         │
-│          Whale │ Fresh Wallet │ Cluster Activity            │
+│   Whale │ Fresh Wallet │ Cluster │ Timing │ Odds │ Contrarian│
 └─────────────────────────────────────────────────────────────┘
                               │
                               v
 ┌─────────────────────────────────────────────────────────────┐
 │                      Enrichment                             │
-│         Market title, current odds, wallet profile          │
+│    Market title, current odds, end date, wallet P&L         │
 └─────────────────────────────────────────────────────────────┘
                               │
                               v
@@ -229,6 +247,10 @@ polytracker/
 | `CLUSTER_WINDOW_SECONDS` | 60 | Time window for cluster detection |
 | `CLUSTER_MIN_WALLETS` | 3 | Min wallets for cluster signal |
 | `LP_DETECTION_WINDOW_MS` | 200 | Window for LP detection |
+| `TIMING_HOURS_THRESHOLD` | 24.0 | Hours before close to trigger timing signal |
+| `ODDS_MOVEMENT_THRESHOLD` | 0.05 | Min price change (5 cents) for odds movement |
+| `CONTRARIAN_CONSENSUS_THRESHOLD` | 0.70 | Min consensus level (70%) for contrarian |
+| `CONTRARIAN_MIN_SIZE_USD` | 5000 | Min trade size for contrarian signal |
 
 ## API References
 
