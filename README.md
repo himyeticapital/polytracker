@@ -7,7 +7,7 @@ Real-time monitoring of Polymarket's CLOB (Central Limit Order Book) for institu
 ## Features
 
 - **Real-time WebSocket Connection** - Direct feed from Polymarket CLOB
-- **Intelligent Filtering** - Removes noise (small trades, LP activity, sports markets)
+- **Intelligent Filtering** - Removes noise (small trades, LP activity)
 - **Multi-Signal Detection** - Whale trades, fresh wallets, cluster activity
 - **Dual-Channel Alerts** - Discord embeds + Telegram messages
 - **Auto-Reconnect** - Resilient connection with exponential backoff
@@ -52,14 +52,16 @@ Signal Detection
 ```
 
 ### Default Exclusions
-- Sports markets (NBA, NFL, Football, Soccer, Baseball, Hockey)
 - Trades below $2,000 USD value
 - LP/arbitrage activity (same wallet buying both sides within 200ms)
+
+**Note:** All markets are tracked by default, including sports. To exclude specific categories, set `EXCLUDE_MARKET_KEYWORDS` in your `.env` file (e.g., `EXCLUDE_MARKET_KEYWORDS=["crypto", "price"]`).
 
 ## Assets Tracked
 
 The bot automatically fetches and monitors the **top 100 markets by 24h volume** from Polymarket. This includes:
 - Political prediction markets
+- Sports betting (NBA, NFL, Soccer, etc.)
 - Crypto price predictions
 - Economic indicators
 - Current events
@@ -151,7 +153,7 @@ WHALE_MULTIPLIER=5.0
 FRESH_WALLET_MAX_TXS=10
 CLUSTER_WINDOW_SECONDS=60
 CLUSTER_MIN_WALLETS=3
-EXCLUDE_MARKET_KEYWORDS=["Sports", "Football", "NBA", "NFL", "Soccer", "Baseball", "Hockey"]
+# EXCLUDE_MARKET_KEYWORDS=[]  # Empty = track all markets (default)
 ```
 
 ## Usage
