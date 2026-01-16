@@ -5,14 +5,17 @@ Handles dual-channel notifications to Discord and Telegram with:
 - Rate limiting (LeakyBucket queue)
 - Rich formatting (Discord embeds, Telegram HTML)
 - Automatic retry on failures
+- Wallet nickname generation
+- Market thumbnail images
 """
 
 import asyncio
+import hashlib
 import logging
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Optional
+from typing import Deque, Optional, List
 
 import aiohttp
 from telegram import Bot
@@ -23,6 +26,46 @@ from .config import config, AlertConfig
 from .models import Signal, SignalType
 
 logger = logging.getLogger(__name__)
+
+# Word lists for generating wallet nicknames (like "Utter-Ease")
+ADJECTIVES = [
+    "Swift", "Calm", "Bold", "Keen", "Wise", "Fair", "Pure", "Deep",
+    "Warm", "Cool", "Soft", "Firm", "Quick", "Slow", "High", "Low",
+    "Bright", "Dark", "Light", "Heavy", "Sharp", "Smooth", "Rough", "Fine",
+    "Grand", "Small", "Great", "Tiny", "Vast", "Wide", "Narrow", "Thick",
+    "Utter", "Prime", "Noble", "Royal", "Brave", "Quiet", "Loud", "Silent",
+    "Rapid", "Steady", "Lucky", "Happy", "Merry", "Jolly", "Witty", "Clever",
+]
+
+NOUNS = [
+    "Ease", "Grace", "Power", "Force", "Light", "Dawn", "Dusk", "Star",
+    "Moon", "Sun", "Sky", "Sea", "Wave", "Wind", "Fire", "Frost",
+    "Stone", "Peak", "Vale", "Glen", "Brook", "Lake", "River", "Ocean",
+    "Eagle", "Hawk", "Wolf", "Bear", "Lion", "Tiger", "Falcon", "Raven",
+    "Sage", "Knight", "Baron", "Duke", "Count", "Lord", "King", "Queen",
+    "Spark", "Flame", "Storm", "Cloud", "Rain", "Snow", "Thunder", "Flash",
+]
+
+
+def generate_wallet_nickname(address: str) -> str:
+    """
+    Generate a memorable nickname from a wallet address.
+
+    Uses a hash of the address to deterministically pick words,
+    so the same address always gets the same nickname.
+    """
+    if not address:
+        return "Unknown"
+
+    # Use hash to get consistent indices
+    addr_hash = hashlib.md5(address.lower().encode()).hexdigest()
+    adj_idx = int(addr_hash[:8], 16) % len(ADJECTIVES)
+    noun_idx = int(addr_hash[8:16], 16) % len(NOUNS)
+
+    # Get short address suffix for disambiguation
+    short_addr = address[-4:].upper() if len(address) >= 4 else address.upper()
+
+    return f"{ADJECTIVES[adj_idx]}-{NOUNS[noun_idx]} ({short_addr})"
 
 
 @dataclass
@@ -222,48 +265,74 @@ class AlertManager:
             logger.debug(f"Telegram alert sent for {signal.trade.market[:10]}...")
 
     def _build_discord_embed(self, signal: Signal) -> dict:
-        """Build a Discord embed object for a signal."""
+        """Build a Discord embed object for a signal (styled like Polymarket Watch)."""
         trade = signal.trade
 
-        # Color based on confidence
-        color = 0xFF0000 if signal.is_high_confidence else 0xFFA500  # Red or Orange
+        # Color based on signal type - green/teal for fresh wallet like friend's bot
+        if SignalType.FRESH_WALLET in signal.signal_types:
+            color = 0x2ECC71  # Green for fresh wallet
+        elif signal.is_high_confidence:
+            color = 0xFF0000  # Red for high confidence
+        else:
+            color = 0xFFA500  # Orange for medium
 
-        # Title with market name
+        # Title with signal type indicator (like friend's "Low Activity Wallet")
+        signal_label = self._get_primary_signal_label(signal)
         market_name = signal.market_title or f"Market {trade.market[:16]}..."
-        title = f"{'🚨' if signal.is_high_confidence else '⚠️'} {market_name}"
 
-        # Side indicator
-        side_emoji = "📈" if trade.side.value == "BUY" else "📉"
+        # Determine outcome based on trade side
+        outcome = "Yes" if trade.side.value == "BUY" else "No"
 
-        # Build fields
+        # Generate wallet nickname
+        wallet_nickname = generate_wallet_nickname(trade.taker_address) if trade.taker_address else "Unknown"
+
+        # Build fields in column layout like friend's bot
         fields = [
             {
-                "name": "Trade",
-                "value": f"{side_emoji} **{trade.side.value}** @ {trade.price:.2f}¢\n"
-                         f"**${trade.usd_value:,.0f}** ({trade.size:,.0f} shares)",
+                "name": "Trader",
+                "value": f"[{wallet_nickname}](https://polygonscan.com/address/{trade.taker_address})",
                 "inline": True,
             },
             {
-                "name": "Signals",
-                "value": self._format_signal_types(signal),
+                "name": "Side",
+                "value": trade.side.value,
+                "inline": True,
+            },
+            {
+                "name": "Trade",
+                "value": f"{trade.size:,.0f} shares @ {trade.price * 100:.1f}¢",
+                "inline": True,
+            },
+            {
+                "name": "Notional",
+                "value": f"${trade.usd_value:,.0f}",
+                "inline": True,
+            },
+            {
+                "name": "Unique markets\n(lifetime est.)",
+                "value": f"{signal.wallet_total_trades or 'n/a'}",
+                "inline": True,
+            },
+            {
+                "name": "Win Rate (resolved)",
+                "value": f"{signal.wallet_win_rate:.0%}" if signal.wallet_win_rate else "n/a",
                 "inline": True,
             },
         ]
 
-        # Add wallet info if available
-        if signal.wallet_tx_count is not None:
-            wallet_short = trade.taker_address[:10] + "..." if trade.taker_address else "Unknown"
+        # Add your existing advanced signals section
+        if len(signal.signal_types) > 1 or SignalType.FRESH_WALLET not in signal.signal_types:
             fields.append({
-                "name": "Wallet",
-                "value": f"`{wallet_short}`\n{signal.wallet_tx_count} transactions",
-                "inline": True,
+                "name": "Signals Detected",
+                "value": self._format_signal_types(signal),
+                "inline": False,
             })
 
         # Add cluster info if applicable
         if SignalType.CLUSTER in signal.signal_types:
             fields.append({
-                "name": "Cluster",
-                "value": f"{len(signal.cluster_wallets)} wallets in {config.filters.cluster_window_seconds}s",
+                "name": "Cluster Activity",
+                "value": f"👥 {len(signal.cluster_wallets)} wallets in {config.filters.cluster_window_seconds}s",
                 "inline": True,
             })
 
@@ -272,89 +341,126 @@ class AlertManager:
             fields.append({
                 "name": "Current Odds",
                 "value": f"YES: {signal.current_yes_price:.0%} | NO: {signal.current_no_price:.0%}",
-                "inline": False,
+                "inline": True,
             })
 
         # Add timing info if near market close
         if signal.hours_to_close is not None and signal.hours_to_close > 0:
             fields.append({
                 "name": "Market Close",
-                "value": f"⏰ {signal.hours_to_close:.1f} hours remaining",
+                "value": f"⏰ {signal.hours_to_close:.1f}h remaining",
                 "inline": True,
             })
 
         # Add odds movement info
         if signal.price_before_trade is not None and signal.price_after_trade is not None:
             price_change = signal.price_after_trade - signal.price_before_trade
-            direction = "📈" if price_change > 0 else "📉"
-            fields.append({
-                "name": "Price Movement",
-                "value": f"{direction} {signal.price_before_trade:.2f} → {signal.price_after_trade:.2f}",
-                "inline": True,
-            })
+            if abs(price_change) >= 0.01:  # Only show if meaningful change
+                direction = "📈" if price_change > 0 else "📉"
+                fields.append({
+                    "name": "Price Movement",
+                    "value": f"{direction} {signal.price_before_trade * 100:.1f}¢ → {signal.price_after_trade * 100:.1f}¢",
+                    "inline": True,
+                })
 
-        # Add wallet profile if available
+        # Add wallet P&L if available
         if signal.wallet_profit_loss is not None:
             pnl_emoji = "💰" if signal.wallet_profit_loss > 0 else "📉"
-            profile_text = f"{pnl_emoji} P/L: ${signal.wallet_profit_loss:+,.0f}"
-            if signal.wallet_win_rate is not None:
-                profile_text += f"\nWin Rate: {signal.wallet_win_rate:.0%}"
-            if signal.wallet_total_trades is not None:
-                profile_text += f"\nTrades: {signal.wallet_total_trades:,}"
             fields.append({
-                "name": "Wallet Profile",
-                "value": profile_text,
+                "name": "Wallet P/L",
+                "value": f"{pnl_emoji} ${signal.wallet_profit_loss:+,.0f}",
                 "inline": True,
             })
 
-        # Links
-        market_link = f"https://polymarket.com/event/{signal.market_slug}" if signal.market_slug else "#"
-        wallet_link = f"https://polygonscan.com/address/{trade.taker_address}" if trade.taker_address else "#"
+        # Market link and thumbnail
+        market_link = f"https://polymarket.com/event/{signal.market_slug}" if signal.market_slug else None
 
-        return {
-            "title": title,
+        # Build the embed
+        embed = {
+            "title": f"{signal_label}",
+            "description": f"**{market_name}**\nOutcome: **{outcome}**",
             "color": color,
             "fields": fields,
             "footer": {
-                "text": f"Confidence: {signal.confidence:.0%} | {trade.datetime.strftime('%H:%M:%S UTC')}",
+                "text": f"PolyTracker • {trade.datetime.strftime('%m/%d/%Y, %I:%M:%S %p')}",
             },
-            "url": market_link,
         }
 
+        if market_link:
+            embed["url"] = market_link
+
+        # Add market thumbnail if we have a slug (Polymarket image URL pattern)
+        if signal.market_slug:
+            embed["thumbnail"] = {
+                "url": f"https://polymarket-upload.s3.us-east-2.amazonaws.com/{signal.market_slug}.png"
+            }
+
+        return embed
+
+    def _get_primary_signal_label(self, signal: Signal) -> str:
+        """Get the primary signal label for the embed title."""
+        # Prioritize certain signals for the title
+        if SignalType.FRESH_WALLET in signal.signal_types:
+            return "✨ Low Activity Wallet"
+        if SignalType.WHALE in signal.signal_types:
+            return "🐋 Whale Alert"
+        if SignalType.CLUSTER in signal.signal_types:
+            return "👥 Cluster Activity"
+        if SignalType.CONTRARIAN in signal.signal_types:
+            return "🔀 Contrarian Bet"
+        if SignalType.TIMING in signal.signal_types:
+            return "⏰ Near Market Close"
+        if SignalType.ODDS_MOVEMENT in signal.signal_types:
+            return "📈 Odds Movement"
+        if SignalType.SIZE_ANOMALY in signal.signal_types:
+            return "📊 Size Anomaly"
+        return "⚠️ Alert"
+
     def _build_telegram_message(self, signal: Signal) -> str:
-        """Build an HTML-formatted Telegram message."""
+        """Build an HTML-formatted Telegram message (styled like Polymarket Watch)."""
         trade = signal.trade
 
-        # Header
+        # Signal label header
+        signal_label = self._get_primary_signal_label(signal)
         market_name = signal.market_title or f"Market {trade.market[:16]}..."
-        header_emoji = "🚨" if signal.is_high_confidence else "⚠️"
-        header = f"<b>{header_emoji} ALERT: {market_name}</b>"
+        outcome = "Yes" if trade.side.value == "BUY" else "No"
 
-        # Trade details
-        side_emoji = "📈" if trade.side.value == "BUY" else "📉"
+        # Generate wallet nickname
+        wallet_nickname = generate_wallet_nickname(trade.taker_address) if trade.taker_address else "Unknown"
+
+        header = f"<b>{signal_label}</b>\n\n<b>{market_name}</b>\nOutcome: <b>{outcome}</b>"
+
+        # Trade details in column format
         trade_info = (
-            f"<b>Side:</b> {trade.side.value} {side_emoji}\n"
-            f"<b>Price:</b> {trade.price:.2f}¢\n"
-            f"<b>Amount:</b> ${trade.usd_value:,.0f}"
+            f"\n\n<b>Trader</b>          <b>Side</b>          <b>Trade</b>\n"
+            f"<a href='https://polygonscan.com/address/{trade.taker_address}'>{wallet_nickname}</a>    "
+            f"{trade.side.value}    "
+            f"{trade.size:,.0f} shares @ {trade.price * 100:.1f}¢\n\n"
+            f"<b>Notional</b>          <b>Unique markets</b>          <b>Win Rate</b>\n"
+            f"${trade.usd_value:,.0f}          "
+            f"{signal.wallet_total_trades or 'n/a'}          "
+            f"{f'{signal.wallet_win_rate:.0%}' if signal.wallet_win_rate else 'n/a'}"
         )
 
-        # Signals
-        signal_info = f"<b>Signal:</b> {signal.signal_emoji} {self._format_signal_types_text(signal)}"
+        # Additional signals if multiple
+        signals_section = ""
+        if len(signal.signal_types) > 1 or SignalType.FRESH_WALLET not in signal.signal_types:
+            signals_section = f"\n\n<b>Signals:</b> {self._format_signal_types_text(signal)}"
 
-        # Wallet info
-        wallet_info = ""
-        if signal.wallet_tx_count is not None:
-            wallet_info = f"\n<b>Wallet:</b> {signal.wallet_tx_count} txs"
+        # Extra info
+        extra_info = ""
+        if signal.hours_to_close is not None and signal.hours_to_close > 0:
+            extra_info += f"\n⏰ Market closes in {signal.hours_to_close:.1f}h"
+        if signal.wallet_profit_loss is not None:
+            pnl_emoji = "💰" if signal.wallet_profit_loss > 0 else "📉"
+            extra_info += f"\n{pnl_emoji} Wallet P/L: ${signal.wallet_profit_loss:+,.0f}"
 
         # Links
         market_link = f"https://polymarket.com/event/{signal.market_slug}" if signal.market_slug else "#"
-        wallet_link = f"https://polygonscan.com/address/{trade.taker_address}" if trade.taker_address else "#"
 
-        links = f'<a href="{market_link}">view market</a>'
-        if trade.taker_address:
-            links += f' | <a href="{wallet_link}">check wallet</a>'
+        links = f'\n\n<a href="{market_link}">View Market</a>'
 
-        return f"{header}\n\n{trade_info}\n{signal_info}{wallet_info}\n\n{links}"
+        return f"{header}{trade_info}{signals_section}{extra_info}{links}"
 
     def _format_signal_types(self, signal: Signal) -> str:
         """Format signal types for Discord embed."""
