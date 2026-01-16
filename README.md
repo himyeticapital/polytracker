@@ -20,6 +20,17 @@ kill 37263
 # Restart
 cd "/Users/milann.eth/Desktop/polymarket bot" && nohup python3 -m src.main > polytracker.log 2>&1 &
 
+If the bot crashes for any reason, the watchdog will automatically restart it after 5 seconds. The bot will keep running until you manually stop it.
+
+To stop the bot permanently:
+
+
+pkill -f "run_forever.sh" && pkill -f "src.main"
+To check logs:
+
+
+tail -f "/Users/milann.eth/Desktop/polymarket bot/polytracker.log"
+
 ## Features
 
 - **Real-time WebSocket Connection** - Direct feed from Polymarket CLOB
