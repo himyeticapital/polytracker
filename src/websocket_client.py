@@ -115,7 +115,7 @@ class PolymarketWebSocket:
 
         self.subscribed_assets.update(new_assets)
 
-        if self._ws and self._ws.open:
+        if self._ws and not self._ws.close_code:
             await self._send_subscription(list(new_assets), operation="subscribe")
 
     async def unsubscribe(self, asset_ids: List[str]):
@@ -126,7 +126,7 @@ class PolymarketWebSocket:
 
         self.subscribed_assets -= to_remove
 
-        if self._ws and self._ws.open:
+        if self._ws and not self._ws.close_code:
             await self._send_subscription(list(to_remove), operation="unsubscribe")
 
     async def _connect_loop(self):
@@ -179,13 +179,21 @@ class PolymarketWebSocket:
         self._ping_task = asyncio.create_task(self._ping_loop())
 
     async def _send_initial_subscription(self):
-        """Send initial subscription message."""
-        message = {
-            "assets_ids": list(self.subscribed_assets),
-            "type": "market",
-        }
-        await self._ws.send(json.dumps(message))
-        logger.info(f"Subscribed to {len(self.subscribed_assets)} assets")
+        """Send initial subscription message (batched if > 500 assets)."""
+        assets = list(self.subscribed_assets)
+        batch_size = 500  # Polymarket limit
+
+        # Send in batches
+        for i in range(0, len(assets), batch_size):
+            batch = assets[i:i + batch_size]
+            message = {
+                "assets_ids": batch,
+                "type": "market",
+            }
+            await self._ws.send(json.dumps(message))
+            logger.info(f"Subscribed to batch {i // batch_size + 1}: {len(batch)} assets")
+
+        logger.info(f"Total subscribed: {len(self.subscribed_assets)} assets")
 
     async def _send_subscription(self, asset_ids: List[str], operation: str):
         """Send subscribe/unsubscribe message."""
@@ -198,7 +206,7 @@ class PolymarketWebSocket:
 
     async def _ping_loop(self):
         """Send periodic pings to keep connection alive."""
-        while self._running and self._ws and self._ws.open:
+        while self._running and self._ws and not self._ws.close_code:
             try:
                 await asyncio.sleep(self.PING_INTERVAL)
                 await self._ws.send("PING")
@@ -224,8 +232,19 @@ class PolymarketWebSocket:
                 logger.error(f"Error handling message: {e}")
                 self.stats["errors"] += 1
 
-    async def _handle_message(self, data: dict):
+    async def _handle_message(self, data):
         """Route message to appropriate handler based on event_type."""
+        # Handle array of messages
+        if isinstance(data, list):
+            for item in data:
+                await self._handle_message(item)
+            return
+
+        # Handle single message
+        if not isinstance(data, dict):
+            logger.debug(f"Unexpected data type: {type(data)}")
+            return
+
         event_type = data.get("event_type")
 
         if event_type == "last_trade_price":
