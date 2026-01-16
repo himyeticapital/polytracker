@@ -4,6 +4,22 @@
 
 Real-time monitoring of Polymarket's CLOB (Central Limit Order Book) for institutional/insider order flow. Detects whale trades, fresh wallet activity, and coordinated buying patterns, then broadcasts alerts to Discord and Telegram.
 
+
+Useful commands:
+
+
+# Check if running
+ps aux | grep polytracker
+
+# View live logs
+tail -f "/Users/milann.eth/Desktop/polymarket bot/polytracker.log"
+
+# Stop the bot
+kill 37263
+
+# Restart
+cd "/Users/milann.eth/Desktop/polymarket bot" && nohup python3 -m src.main > polytracker.log 2>&1 &
+
 ## Features
 
 - **Real-time WebSocket Connection** - Direct feed from Polymarket CLOB
