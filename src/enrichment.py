@@ -4,17 +4,23 @@ Data enrichment for PolyTracker.
 Fetches additional metadata to make alerts more informative:
 - Market title and slug from Polymarket API
 - Current market prices/odds
+- Market end dates for timing detection
+- Wallet profile data (P&L, win rate)
 - Caching to minimize API calls
 """
 
 import asyncio
 import logging
 import time
-from typing import Dict, Optional
+from datetime import datetime
+from typing import Dict, Optional, TYPE_CHECKING
 
 import aiohttp
 
 from .models import Signal, MarketInfo
+
+if TYPE_CHECKING:
+    from .signals import SignalDetector
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +38,19 @@ class MarketEnricher:
     # CLOB API for market data
     CLOB_API_BASE = "https://clob.polymarket.com"
 
-    def __init__(self, cache_ttl: int = 3600):
+    # Polymarket profile API
+    PROFILE_API_BASE = "https://polymarket.com/api/profile"
+
+    def __init__(self, cache_ttl: int = 3600, signal_detector: Optional["SignalDetector"] = None):
         """
         Initialize the enricher.
 
         Args:
             cache_ttl: Cache time-to-live in seconds (default 1 hour)
+            signal_detector: Reference to signal detector for updating market cache
         """
         self.cache_ttl = cache_ttl
+        self.signal_detector = signal_detector
 
         # Cache: condition_id -> (MarketInfo, timestamp)
         self.market_cache: Dict[str, tuple[MarketInfo, float]] = {}
@@ -47,15 +58,24 @@ class MarketEnricher:
         # Cache: asset_id -> condition_id mapping
         self.asset_to_market: Dict[str, str] = {}
 
+        # Wallet profile cache: address -> (profile_data, timestamp)
+        self.wallet_cache: Dict[str, tuple[dict, float]] = {}
+        self.wallet_cache_ttl = 300  # 5 minutes for wallet data
+
         # Rate limiting
         self.last_api_call = 0
         self.min_call_interval = 0.2  # 200ms between API calls
 
+    def set_signal_detector(self, detector: "SignalDetector"):
+        """Set reference to signal detector for cache updates."""
+        self.signal_detector = detector
+
     async def enrich_signal(self, signal: Signal) -> Signal:
         """
-        Enrich a signal with market metadata.
+        Enrich a signal with market metadata and wallet profile.
 
-        Fetches market title, slug, and current prices.
+        Fetches market title, slug, current prices, end date, and wallet P&L.
+        Also updates the signal detector's market cache for future detections.
         """
         trade = signal.trade
 
@@ -66,12 +86,31 @@ class MarketEnricher:
             if market_info:
                 signal.market_title = market_info.question
                 signal.market_slug = market_info.slug
+                signal.market_end_date = market_info.end_date
 
             # Get current prices
             prices = await self._get_current_prices(trade.asset_id)
             if prices:
                 signal.current_yes_price = prices.get("yes")
                 signal.current_no_price = prices.get("no")
+
+                # Update signal detector's market cache for timing/contrarian detection
+                if self.signal_detector:
+                    self.signal_detector.update_market_metadata(
+                        condition_id=trade.market,
+                        end_date=market_info.end_date if market_info else None,
+                        yes_price=prices.get("yes"),
+                        no_price=prices.get("no"),
+                    )
+
+            # Fetch wallet profile if available
+            if trade.taker_address:
+                profile = await self._get_wallet_profile(trade.taker_address)
+                if profile:
+                    signal.wallet_profit_loss = profile.get("profit_loss")
+                    signal.wallet_win_rate = profile.get("win_rate")
+                    signal.wallet_total_trades = profile.get("total_trades")
+                    signal.wallet_volume = profile.get("volume")
 
         except Exception as e:
             logger.warning(f"Enrichment failed: {e}")
@@ -131,12 +170,25 @@ class MarketEnricher:
     def _parse_market_data(self, data: dict) -> Optional[MarketInfo]:
         """Parse market data from API response."""
         try:
+            # Parse end date from various possible field names
+            end_date = None
+            end_date_str = data.get("end_date_iso") or data.get("end_date") or data.get("closed_time")
+            if end_date_str:
+                try:
+                    # Handle ISO format with or without timezone
+                    if isinstance(end_date_str, str):
+                        end_date_str = end_date_str.replace("Z", "+00:00")
+                        end_date = datetime.fromisoformat(end_date_str)
+                except (ValueError, TypeError):
+                    pass
+
             return MarketInfo(
                 condition_id=data.get("condition_id", ""),
                 question=data.get("question", data.get("title", "")),
                 slug=data.get("market_slug", data.get("slug", "")),
                 yes_token_id=data.get("tokens", [{}])[0].get("token_id", ""),
                 no_token_id=data.get("tokens", [{}])[1].get("token_id", "") if len(data.get("tokens", [])) > 1 else "",
+                end_date=end_date,
             )
         except Exception as e:
             logger.debug(f"Failed to parse market data: {e}")
@@ -167,6 +219,62 @@ class MarketEnricher:
             )
             for cid, _ in sorted_entries[:100]:
                 del self.market_cache[cid]
+
+    async def _get_wallet_profile(self, address: str) -> Optional[dict]:
+        """
+        Fetch wallet profile data from Polymarket.
+
+        Returns profit/loss, win rate, and trading volume.
+        """
+        address = address.lower()
+
+        # Check cache first
+        if address in self.wallet_cache:
+            profile, timestamp = self.wallet_cache[address]
+            if time.time() - timestamp < self.wallet_cache_ttl:
+                return profile
+
+        await self._rate_limit()
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Polymarket profile API endpoint
+                url = f"{self.PROFILE_API_BASE}/{address}"
+                headers = {"Accept": "application/json"}
+
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+
+                        # Extract relevant profile data
+                        profile = {
+                            "profit_loss": data.get("pnl") or data.get("profit_loss") or data.get("totalPnl"),
+                            "win_rate": data.get("win_rate") or data.get("winRate"),
+                            "total_trades": data.get("total_trades") or data.get("tradesCount") or data.get("numTrades"),
+                            "volume": data.get("volume") or data.get("totalVolume"),
+                        }
+
+                        # Convert win rate to decimal if percentage
+                        if profile["win_rate"] and profile["win_rate"] > 1:
+                            profile["win_rate"] = profile["win_rate"] / 100
+
+                        # Cache the result
+                        self.wallet_cache[address] = (profile, time.time())
+
+                        # Clean old cache entries
+                        if len(self.wallet_cache) > 500:
+                            cutoff = time.time() - self.wallet_cache_ttl
+                            self.wallet_cache = {
+                                k: v for k, v in self.wallet_cache.items()
+                                if v[1] > cutoff
+                            }
+
+                        return profile
+
+        except Exception as e:
+            logger.debug(f"Wallet profile fetch failed for {address[:10]}...: {e}")
+
+        return None
 
     async def _rate_limit(self):
         """Enforce minimum interval between API calls."""

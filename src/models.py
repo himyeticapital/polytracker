@@ -21,6 +21,9 @@ class SignalType(Enum):
     FRESH_WALLET = "fresh"    # New wallet with few transactions
     CLUSTER = "cluster"       # Multiple wallets trading same direction
     SIZE_ANOMALY = "anomaly"  # Trade significantly above average
+    TIMING = "timing"         # Trade near market close or key event
+    ODDS_MOVEMENT = "odds"    # Trade that moves the line significantly
+    CONTRARIAN = "contrarian" # Large trade against current consensus
 
 
 @dataclass
@@ -110,6 +113,16 @@ class Signal:
     market_slug: Optional[str] = None
     current_yes_price: Optional[float] = None
     current_no_price: Optional[float] = None
+    price_before_trade: Optional[float] = None
+    price_after_trade: Optional[float] = None
+    market_end_date: Optional[datetime] = None
+    hours_to_close: Optional[float] = None
+
+    # Wallet profile enrichment
+    wallet_profit_loss: Optional[float] = None
+    wallet_win_rate: Optional[float] = None
+    wallet_total_trades: Optional[int] = None
+    wallet_volume: Optional[float] = None
 
     @property
     def is_high_confidence(self) -> bool:
@@ -135,6 +148,12 @@ class Signal:
             emojis.append("\U0001F465")  # busts in silhouette
         if SignalType.SIZE_ANOMALY in self.signal_types:
             emojis.append("\U0001F4C8")  # chart increasing
+        if SignalType.TIMING in self.signal_types:
+            emojis.append("\u23F0")  # alarm clock
+        if SignalType.ODDS_MOVEMENT in self.signal_types:
+            emojis.append("\U0001F4CA")  # bar chart
+        if SignalType.CONTRARIAN in self.signal_types:
+            emojis.append("\U0001F500")  # twisted arrows
         return " ".join(emojis) if emojis else "\U0001F514"  # bell
 
 

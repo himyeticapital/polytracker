@@ -86,6 +86,9 @@ class PolyTracker:
         else:
             logger.warning("Telegram alerts: DISABLED (missing token or chat ID)")
 
+        # Connect enricher to signal detector for market cache updates
+        market_enricher.set_signal_detector(signal_detector)
+
         # Start alert manager
         await alert_manager.start()
 
@@ -195,7 +198,10 @@ class PolyTracker:
             f"  Signals: {signal_stats.get('signals_generated', 0)} generated "
             f"(whale={signal_stats.get('whale_signals', 0)}, "
             f"fresh={signal_stats.get('fresh_wallet_signals', 0)}, "
-            f"cluster={signal_stats.get('cluster_signals', 0)})"
+            f"cluster={signal_stats.get('cluster_signals', 0)}, "
+            f"timing={signal_stats.get('timing_signals', 0)}, "
+            f"odds={signal_stats.get('odds_movement_signals', 0)}, "
+            f"contrarian={signal_stats.get('contrarian_signals', 0)})"
         )
         logger.info(
             f"  Alerts: {alert_stats.get('alerts_sent', 0)} sent "

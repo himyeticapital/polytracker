@@ -46,6 +46,14 @@ class FilterConfig:
     cluster_min_wallets: int = 3
     lp_detection_window_ms: int = 200
     exclude_market_keywords: List[str] = field(default_factory=list)
+    # Timing signal: hours before market close to trigger
+    timing_hours_threshold: float = 24.0
+    # Odds movement: minimum price change to trigger (e.g., 0.05 = 5 cents)
+    odds_movement_threshold: float = 0.05
+    # Contrarian: minimum price for consensus (e.g., 0.70 = 70%)
+    contrarian_consensus_threshold: float = 0.70
+    # Contrarian: minimum trade size for contrarian signal
+    contrarian_min_size_usd: float = 5000.0
 
 
 @dataclass
@@ -101,6 +109,10 @@ def load_config() -> Config:
             cluster_min_wallets=int(os.getenv("CLUSTER_MIN_WALLETS", "3")),
             lp_detection_window_ms=int(os.getenv("LP_DETECTION_WINDOW_MS", "200")),
             exclude_market_keywords=exclude_keywords,
+            timing_hours_threshold=float(os.getenv("TIMING_HOURS_THRESHOLD", "24.0")),
+            odds_movement_threshold=float(os.getenv("ODDS_MOVEMENT_THRESHOLD", "0.05")),
+            contrarian_consensus_threshold=float(os.getenv("CONTRARIAN_CONSENSUS_THRESHOLD", "0.70")),
+            contrarian_min_size_usd=float(os.getenv("CONTRARIAN_MIN_SIZE_USD", "5000")),
         ),
     )
 
