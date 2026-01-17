@@ -189,7 +189,12 @@ class AlertManager:
         Queue a signal for alerting.
 
         Non-blocking - adds to queue and returns immediately.
+        Only sends alerts when confidence > 60%.
         """
+        if signal.confidence <= 0.60:
+            logger.debug(f"Skipping alert - confidence {signal.confidence:.0%} <= 60%")
+            return
+
         self.queue.add(signal)
         self.stats["alerts_queued"] += 1
 
