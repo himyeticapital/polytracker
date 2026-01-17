@@ -226,11 +226,15 @@ class AlertManager:
         discord_urls = []
         if self.config.discord_webhook_url:
             discord_urls.append(self.config.discord_webhook_url)
+            logger.info(f"Discord webhook configured: {self.config.discord_webhook_url[:50]}...")
+        else:
+            logger.warning("No Discord webhook URL configured")
         if self.config.discord_webhook_urls:
             discord_urls.extend(self.config.discord_webhook_urls)
 
         # Remove duplicates while preserving order
         discord_urls = list(dict.fromkeys(discord_urls))
+        logger.info(f"Sending to {len(discord_urls)} Discord webhook(s)")
 
         # Send to all Discord webhooks
         for webhook_url in discord_urls:
@@ -264,7 +268,7 @@ class AlertManager:
                     raise Exception(f"Discord webhook failed ({resp.status}): {text}")
 
         self.stats["discord_sent"] += 1
-        logger.debug(f"Discord alert sent for {signal.trade.market[:10]}...")
+        logger.info(f"Discord alert sent successfully")
 
     async def _send_telegram(self, signal: Signal):
         """Send a Telegram message with HTML formatting."""
