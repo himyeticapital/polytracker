@@ -182,8 +182,11 @@ class PolymarketWebSocket:
         """Send initial subscription message (batched if > 500 assets)."""
         assets = list(self.subscribed_assets)
         batch_size = 500  # Polymarket limit
+        total_batches = (len(assets) + batch_size - 1) // batch_size
 
-        # Send in batches
+        logger.info(f"Subscribing to {len(assets)} assets in {total_batches} batches...")
+
+        # Send in batches with small delay to avoid rate limiting
         for i in range(0, len(assets), batch_size):
             batch = assets[i:i + batch_size]
             message = {
@@ -191,7 +194,10 @@ class PolymarketWebSocket:
                 "type": "market",
             }
             await self._ws.send(json.dumps(message))
-            logger.info(f"Subscribed to batch {i // batch_size + 1}: {len(batch)} assets")
+            batch_num = i // batch_size + 1
+            if batch_num % 10 == 0 or batch_num == total_batches:
+                logger.info(f"Subscribed to batch {batch_num}/{total_batches}: {len(batch)} assets")
+            await asyncio.sleep(0.1)  # Small delay between batches
 
         logger.info(f"Total subscribed: {len(self.subscribed_assets)} assets")
 
