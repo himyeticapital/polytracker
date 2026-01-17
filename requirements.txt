@@ -4,6 +4,9 @@
 websockets>=12.0
 aiohttp>=3.9.0
 
+# Blockchain (Polygon RPC for wallet checks)
+web3>=6.15.0
+
 # Telegram notifications
 python-telegram-bot>=21.0
 
