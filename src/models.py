@@ -24,6 +24,7 @@ class SignalType(Enum):
     TIMING = "timing"         # Trade near market close or key event
     ODDS_MOVEMENT = "odds"    # Trade that moves the line significantly
     CONTRARIAN = "contrarian" # Large trade against current consensus
+    WATCHED_WALLET = "watched"  # Trade from monitored wallet address
 
 
 @dataclass
@@ -154,6 +155,8 @@ class Signal:
             emojis.append("\U0001F4CA")  # bar chart
         if SignalType.CONTRARIAN in self.signal_types:
             emojis.append("\U0001F500")  # twisted arrows
+        if SignalType.WATCHED_WALLET in self.signal_types:
+            emojis.append("\U0001F441")  # eye
         return " ".join(emojis) if emojis else "\U0001F514"  # bell
 
 

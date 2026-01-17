@@ -280,8 +280,10 @@ class AlertManager:
         """Build a Discord embed object for a signal (styled like Polymarket Watch)."""
         trade = signal.trade
 
-        # Color based on signal type - green/teal for fresh wallet like friend's bot
-        if SignalType.FRESH_WALLET in signal.signal_types:
+        # Color based on signal type
+        if SignalType.WATCHED_WALLET in signal.signal_types:
+            color = 0x9B59B6  # Purple for watched wallet
+        elif SignalType.FRESH_WALLET in signal.signal_types:
             color = 0x2ECC71  # Green for fresh wallet
         elif signal.is_high_confidence:
             color = 0xFF0000  # Red for high confidence
@@ -432,7 +434,9 @@ class AlertManager:
 
     def _get_primary_signal_label(self, signal: Signal) -> str:
         """Get the primary signal label for the embed title."""
-        # Prioritize certain signals for the title
+        # Prioritize certain signals for the title (watched wallet first!)
+        if SignalType.WATCHED_WALLET in signal.signal_types:
+            return "👁️ Watched Wallet"
         if SignalType.FRESH_WALLET in signal.signal_types:
             return "✨ Low Activity Wallet"
         if SignalType.WHALE in signal.signal_types:
@@ -546,6 +550,8 @@ class AlertManager:
                 lines.append("📈 Odds Movement")
             elif st == SignalType.CONTRARIAN:
                 lines.append("🔀 Contrarian Bet")
+            elif st == SignalType.WATCHED_WALLET:
+                lines.append("👁️ Watched Wallet")
         return "\n".join(lines) if lines else "Unknown"
 
     def _format_signal_types_text(self, signal: Signal) -> str:
@@ -566,6 +572,8 @@ class AlertManager:
                 parts.append("Odds Movement")
             elif st == SignalType.CONTRARIAN:
                 parts.append("Contrarian")
+            elif st == SignalType.WATCHED_WALLET:
+                parts.append("Watched Wallet")
         return " + ".join(parts) if parts else "Unknown"
 
     def get_stats(self) -> dict:

@@ -208,6 +208,9 @@ class SignalDetector:
         # Market metadata cache for timing/contrarian: condition_id -> MarketMetadata
         self.market_cache: Dict[str, MarketMetadata] = {}
 
+        # Normalize watched wallets to lowercase for comparison
+        self.watched_wallets_lower = {w.lower() for w in self.config.watched_wallets}
+
         # Stats
         self.stats = {
             "trades_analyzed": 0,
@@ -218,6 +221,7 @@ class SignalDetector:
             "timing_signals": 0,
             "odds_movement_signals": 0,
             "contrarian_signals": 0,
+            "watched_wallet_signals": 0,
         }
 
     async def analyze_trade(self, trade: Trade) -> Optional[Signal]:
@@ -293,6 +297,13 @@ class SignalDetector:
         if is_contrarian:
             signal_types.append(SignalType.CONTRARIAN)
             self.stats["contrarian_signals"] += 1
+
+        # Detection G: Watched Wallet (always alert on tracked wallets)
+        is_watched = self._detect_watched_wallet(trade)
+        if is_watched:
+            signal_types.append(SignalType.WATCHED_WALLET)
+            self.stats["watched_wallet_signals"] += 1
+            logger.info(f"Watched wallet trade: {trade.taker_address[:10]}... ${trade.usd_value:,.0f}")
 
         # Return Signal only if at least one pattern matched
         if not signal_types:
@@ -517,6 +528,24 @@ class SignalDetector:
 
         return is_contrarian
 
+    def _detect_watched_wallet(self, trade: Trade) -> bool:
+        """
+        Detect if trade is from a watched wallet.
+
+        Signal G: Always alert on trades from monitored wallet addresses,
+        useful for tracking suspected insiders or profitable traders.
+
+        Returns:
+            True if trade is from a watched wallet
+        """
+        if not trade.taker_address:
+            return False
+
+        if not self.watched_wallets_lower:
+            return False
+
+        return trade.taker_address.lower() in self.watched_wallets_lower
+
     def update_market_metadata(self, condition_id: str, end_date: Optional[datetime] = None,
                                 yes_price: Optional[float] = None, no_price: Optional[float] = None):
         """
@@ -590,6 +619,10 @@ class SignalDetector:
         # Odds movement indicates market impact
         if SignalType.ODDS_MOVEMENT in signal_types:
             base_confidence += 0.05
+
+        # Watched wallet signals are high priority
+        if SignalType.WATCHED_WALLET in signal_types:
+            base_confidence += 0.20
 
         # Size bonus
         if trade.usd_value >= 50000:

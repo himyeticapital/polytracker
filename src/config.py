@@ -55,6 +55,8 @@ class FilterConfig:
     contrarian_consensus_threshold: float = 0.70
     # Contrarian: minimum trade size for contrarian signal
     contrarian_min_size_usd: float = 5000.0
+    # Watched wallets: list of wallet addresses to always alert on
+    watched_wallets: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -115,6 +117,7 @@ def load_config() -> Config:
             odds_movement_threshold=float(os.getenv("ODDS_MOVEMENT_THRESHOLD", "0.05")),
             contrarian_consensus_threshold=float(os.getenv("CONTRARIAN_CONSENSUS_THRESHOLD", "0.70")),
             contrarian_min_size_usd=float(os.getenv("CONTRARIAN_MIN_SIZE_USD", "5000")),
+            watched_wallets=parse_list_env(os.getenv("WATCHED_WALLETS", "")),
         ),
     )
 
