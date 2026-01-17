@@ -343,9 +343,9 @@ async def main():
         await send_test_watched_wallet_alert()
         return
 
-    # Fetch top markets to subscribe to (200 markets = ~400 assets)
+    # Fetch top markets to subscribe to (500 markets to include niche markets)
     # Note: Higher numbers can cause WebSocket message size limits
-    asset_ids = await fetch_top_markets(limit=200)
+    asset_ids = await fetch_top_markets(limit=500)
 
     if not asset_ids:
         logger.warning("No markets fetched from API. Using fallback asset IDs.")
