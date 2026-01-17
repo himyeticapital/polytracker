@@ -31,6 +31,7 @@ class BlockchainConfig:
 class AlertConfig:
     """Discord and Telegram notification configuration."""
     discord_webhook_url: str = ""
+    discord_webhook_urls: List[str] = field(default_factory=list)  # Multiple webhooks
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
@@ -97,6 +98,7 @@ def load_config() -> Config:
         ),
         alerts=AlertConfig(
             discord_webhook_url=os.getenv("DISCORD_WEBHOOK_URL", ""),
+            discord_webhook_urls=parse_list_env(os.getenv("DISCORD_WEBHOOK_URLS", "")),
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
         ),
