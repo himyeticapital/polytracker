@@ -320,13 +320,12 @@ class AlertManager:
             },
         ]
 
-        # Add your existing advanced signals section
-        if len(signal.signal_types) > 1 or SignalType.FRESH_WALLET not in signal.signal_types:
-            fields.append({
-                "name": "Signals Detected",
-                "value": self._format_signal_types(signal),
-                "inline": False,
-            })
+        # Always show Signals Detected
+        fields.append({
+            "name": "Signals Detected",
+            "value": self._format_signal_types(signal),
+            "inline": False,
+        })
 
         # Add cluster info if applicable
         if SignalType.CLUSTER in signal.signal_types:
@@ -336,6 +335,30 @@ class AlertManager:
                 "inline": True,
             })
 
+        # Always show Market Close (even if n/a)
+        if signal.hours_to_close is not None and signal.hours_to_close > 0:
+            market_close_value = f"⏰ {signal.hours_to_close:.1f}h remaining"
+        else:
+            market_close_value = "n/a"
+        fields.append({
+            "name": "Market Close",
+            "value": market_close_value,
+            "inline": True,
+        })
+
+        # Always show Price Movement (even if n/a)
+        if signal.price_before_trade is not None and signal.price_after_trade is not None:
+            price_change = signal.price_after_trade - signal.price_before_trade
+            direction = "📈" if price_change > 0 else "📉"
+            price_movement_value = f"{direction} {signal.price_before_trade * 100:.1f}¢ → {signal.price_after_trade * 100:.1f}¢ ({price_change * 100:+.1f}¢)"
+        else:
+            price_movement_value = "n/a"
+        fields.append({
+            "name": "Price Movement",
+            "value": price_movement_value,
+            "inline": True,
+        })
+
         # Add market probabilities if available
         if signal.current_yes_price is not None:
             fields.append({
@@ -344,33 +367,23 @@ class AlertManager:
                 "inline": True,
             })
 
-        # Add timing info if near market close
-        if signal.hours_to_close is not None and signal.hours_to_close > 0:
-            fields.append({
-                "name": "Market Close",
-                "value": f"⏰ {signal.hours_to_close:.1f}h remaining",
-                "inline": True,
-            })
+        # Always show Wallet Profile section
+        pnl_value = f"${signal.wallet_profit_loss:+,.0f}" if signal.wallet_profit_loss is not None else "n/a"
+        pnl_emoji = "💰" if signal.wallet_profit_loss and signal.wallet_profit_loss > 0 else "📉" if signal.wallet_profit_loss and signal.wallet_profit_loss < 0 else ""
+        fields.append({
+            "name": "Wallet P/L",
+            "value": f"{pnl_emoji} {pnl_value}".strip(),
+            "inline": True,
+        })
 
-        # Add odds movement info
-        if signal.price_before_trade is not None and signal.price_after_trade is not None:
-            price_change = signal.price_after_trade - signal.price_before_trade
-            if abs(price_change) >= 0.01:  # Only show if meaningful change
-                direction = "📈" if price_change > 0 else "📉"
-                fields.append({
-                    "name": "Price Movement",
-                    "value": f"{direction} {signal.price_before_trade * 100:.1f}¢ → {signal.price_after_trade * 100:.1f}¢",
-                    "inline": True,
-                })
-
-        # Add wallet P&L if available
-        if signal.wallet_profit_loss is not None:
-            pnl_emoji = "💰" if signal.wallet_profit_loss > 0 else "📉"
-            fields.append({
-                "name": "Wallet P/L",
-                "value": f"{pnl_emoji} ${signal.wallet_profit_loss:+,.0f}",
-                "inline": True,
-            })
+        # Always show Wallet transaction count
+        tx_count = signal.wallet_tx_count if signal.wallet_tx_count is not None else "n/a"
+        tx_label = f"{tx_count} transactions" if isinstance(tx_count, int) else tx_count
+        fields.append({
+            "name": "Wallet",
+            "value": f"🔗 {tx_label}",
+            "inline": True,
+        })
 
         # Market link and thumbnail
         market_link = f"https://polymarket.com/event/{signal.market_slug}" if signal.market_slug else None
@@ -442,18 +455,37 @@ class AlertManager:
             f"{f'{signal.wallet_win_rate:.0%}' if signal.wallet_win_rate else 'n/a'}"
         )
 
-        # Additional signals if multiple
-        signals_section = ""
-        if len(signal.signal_types) > 1 or SignalType.FRESH_WALLET not in signal.signal_types:
-            signals_section = f"\n\n<b>Signals:</b> {self._format_signal_types_text(signal)}"
+        # Always show signals
+        signals_section = f"\n\n<b>Signals:</b> {self._format_signal_types_text(signal)}"
 
-        # Extra info
+        # Always show extra info (even if n/a)
         extra_info = ""
+
+        # Market close
         if signal.hours_to_close is not None and signal.hours_to_close > 0:
-            extra_info += f"\n⏰ Market closes in {signal.hours_to_close:.1f}h"
+            extra_info += f"\n⏰ Market Close: {signal.hours_to_close:.1f}h remaining"
+        else:
+            extra_info += "\n⏰ Market Close: n/a"
+
+        # Price movement
+        if signal.price_before_trade is not None and signal.price_after_trade is not None:
+            price_change = signal.price_after_trade - signal.price_before_trade
+            direction = "📈" if price_change > 0 else "📉"
+            extra_info += f"\n{direction} Price Movement: {signal.price_before_trade * 100:.1f}¢ → {signal.price_after_trade * 100:.1f}¢"
+        else:
+            extra_info += "\n📊 Price Movement: n/a"
+
+        # Wallet P/L
         if signal.wallet_profit_loss is not None:
             pnl_emoji = "💰" if signal.wallet_profit_loss > 0 else "📉"
             extra_info += f"\n{pnl_emoji} Wallet P/L: ${signal.wallet_profit_loss:+,.0f}"
+        else:
+            extra_info += "\n💵 Wallet P/L: n/a"
+
+        # Wallet transaction count
+        tx_count = signal.wallet_tx_count if signal.wallet_tx_count is not None else "n/a"
+        tx_label = f"{tx_count} transactions" if isinstance(tx_count, int) else tx_count
+        extra_info += f"\n🔗 Wallet: {tx_label}"
 
         # Links
         market_link = f"https://polymarket.com/event/{signal.market_slug}" if signal.market_slug else "#"

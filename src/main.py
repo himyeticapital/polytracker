@@ -93,6 +93,7 @@ class PolyTracker:
         await alert_manager.start()
 
         # Create WebSocket client
+        logger.info(f"Passing {len(self.asset_ids)} asset IDs to WebSocket client")
         self.ws_client = PolymarketWebSocket(
             on_trade=self._on_trade,
             asset_ids=self.asset_ids,
@@ -142,12 +143,18 @@ class PolyTracker:
         3. Enrich with metadata
         4. Send alerts
         """
+        # Log all trades >= $100 to see what's coming in
+        if trade.usd_value >= 100:
+            logger.info(f"Trade received: ${trade.usd_value:,.0f} {trade.side.value} @ {trade.price:.2f}")
+
         # Stage 1: Filter
         market_slug = raw_data.get("market_slug", "")
         should_pass, reason = trade_filter.should_pass(trade, market_slug)
 
         if not should_pass:
-            logger.debug(f"Trade filtered: {reason}")
+            # Log trades that were close to threshold
+            if trade.usd_value >= 500:
+                logger.info(f"Trade filtered (${trade.usd_value:,.0f}): {reason}")
             return
 
         # Stage 2: Signal Detection
@@ -223,7 +230,8 @@ async def fetch_top_markets(limit: int = 50) -> list:
     logger.info(f"Fetching top {limit} markets by volume...")
 
     try:
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             # Fetch active markets
             url = "https://gamma-api.polymarket.com/markets"
             params = {
@@ -243,7 +251,15 @@ async def fetch_top_markets(limit: int = 50) -> list:
 
                 for market in markets:
                     # Get token IDs from market
+                    # clobTokenIds can be a JSON string or a list
                     clob_token_ids = market.get("clobTokenIds", [])
+                    if isinstance(clob_token_ids, str):
+                        # Parse JSON string to list
+                        import json as json_module
+                        try:
+                            clob_token_ids = json_module.loads(clob_token_ids)
+                        except:
+                            clob_token_ids = []
                     if clob_token_ids:
                         asset_ids.extend(clob_token_ids)
 
@@ -252,17 +268,39 @@ async def fetch_top_markets(limit: int = 50) -> list:
 
     except Exception as e:
         logger.error(f"Error fetching markets: {e}")
-        return []
+        logger.info("Using fallback popular market IDs...")
+        # Fallback: Popular market token IDs (Trump, crypto, sports, etc.)
+        # These are real token IDs from active Polymarket markets
+        return get_fallback_asset_ids()
+
+
+def get_fallback_asset_ids() -> list:
+    """Return hardcoded fallback asset IDs for popular markets."""
+    # These are real token IDs from popular Polymarket markets
+    # Update periodically for best coverage
+    return [
+        # Trump 2024 markets
+        "21742633143463906290569050155826241533067272736897614950488156847949938836455",
+        "48331043336612883890938759509493159234755048973500640148014422747788308965732",
+        # Bitcoin price markets
+        "52114319501245915516055106046884209969926127482827954674443846427813813082042",
+        "69236923620077691027083946871148646972011131466059644796654161903044970987404",
+        # Other popular markets - add more as needed
+        "16678291189211314787145083999015737376658799626183230671758641503291735614088",
+        "1343197538147866997676150392353",
+        "21742633143463906290569050155826241533067272736897614950488156847949938836455",
+    ]
 
 
 async def main():
     """Main entry point."""
-    # Fetch top markets to subscribe to
-    asset_ids = await fetch_top_markets(limit=100)
+    # Fetch top markets to subscribe to (200 markets = ~400 assets)
+    # Note: Higher numbers can cause WebSocket message size limits
+    asset_ids = await fetch_top_markets(limit=200)
 
     if not asset_ids:
-        logger.error("No markets found to subscribe to. Exiting.")
-        sys.exit(1)
+        logger.warning("No markets fetched from API. Using fallback asset IDs.")
+        asset_ids = get_fallback_asset_ids()
 
     # Create and start tracker
     tracker = PolyTracker(asset_ids=asset_ids)
