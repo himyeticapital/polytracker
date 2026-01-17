@@ -11,7 +11,7 @@ Handles:
 import asyncio
 import json
 import logging
-from typing import Callable, List, Optional, Set
+from typing import Any, Callable, Coroutine, List, Optional, Set
 
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
@@ -43,7 +43,7 @@ class PolymarketWebSocket:
 
     def __init__(
         self,
-        on_trade: Callable[[Trade, dict], asyncio.coroutine],
+        on_trade: Callable[[Trade, dict], Coroutine[Any, Any, None]],
         asset_ids: Optional[List[str]] = None,
     ):
         """
