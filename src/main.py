@@ -292,8 +292,57 @@ def get_fallback_asset_ids() -> list:
     ]
 
 
+async def send_test_watched_wallet_alert():
+    """Send a test watched wallet alert on startup."""
+    import time
+    from .models import Trade, Signal, SignalType, TradeSide
+
+    logger.info("Sending test WATCHED WALLET alert...")
+
+    trade = Trade(
+        asset_id="98765432109876543210",
+        market="0xdeadbeef12345678",
+        price=0.72,
+        size=25000,
+        side=TradeSide.BUY,
+        timestamp=int(time.time() * 1000),
+        taker_address="0xSuspectedInsider1234567890abcdef12345678",
+    )
+
+    signal = Signal(
+        trade=trade,
+        signal_types=[SignalType.WATCHED_WALLET, SignalType.WHALE, SignalType.TIMING],
+        confidence=0.92,
+        market_title="[TEST] Will Bitcoin reach $150,000 by March 2026?",
+        market_slug="bitcoin-150k-march-2026",
+        current_yes_price=0.72,
+        current_no_price=0.28,
+        wallet_tx_count=47,
+        hours_to_close=6.5,
+        price_before_trade=0.68,
+        price_after_trade=0.72,
+        wallet_profit_loss=87500.0,
+        wallet_win_rate=0.81,
+        wallet_total_trades=62,
+        wallet_volume=425000.0,
+    )
+
+    await alert_manager.start()
+    await alert_manager.send_alert(signal)
+    await asyncio.sleep(3)
+    await alert_manager.stop()
+    logger.info("Test alert sent!")
+
+
 async def main():
     """Main entry point."""
+    import os
+
+    # Check if this is just a test alert run
+    if os.getenv("SEND_TEST_ALERT", "").lower() in ("1", "true", "yes"):
+        await send_test_watched_wallet_alert()
+        return
+
     # Fetch top markets to subscribe to (200 markets = ~400 assets)
     # Note: Higher numbers can cause WebSocket message size limits
     asset_ids = await fetch_top_markets(limit=200)
