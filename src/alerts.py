@@ -214,11 +214,22 @@ class AlertManager:
         """Process a single alert, sending to all channels."""
         signal = alert.signal
 
-        # Send to both channels concurrently
+        # Send to all channels concurrently
         tasks = []
 
+        # Collect all Discord webhook URLs
+        discord_urls = []
         if self.config.discord_webhook_url:
-            tasks.append(self._send_discord(signal))
+            discord_urls.append(self.config.discord_webhook_url)
+        if self.config.discord_webhook_urls:
+            discord_urls.extend(self.config.discord_webhook_urls)
+
+        # Remove duplicates while preserving order
+        discord_urls = list(dict.fromkeys(discord_urls))
+
+        # Send to all Discord webhooks
+        for webhook_url in discord_urls:
+            tasks.append(self._send_discord(signal, webhook_url))
 
         if self.config.telegram_bot_token and self.config.telegram_chat_id:
             tasks.append(self._send_telegram(signal))
@@ -233,13 +244,14 @@ class AlertManager:
 
             self.stats["alerts_sent"] += 1
 
-    async def _send_discord(self, signal: Signal):
+    async def _send_discord(self, signal: Signal, webhook_url: str = None):
         """Send a rich Discord webhook embed."""
+        url = webhook_url or self.config.discord_webhook_url
         embed = self._build_discord_embed(signal)
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                self.config.discord_webhook_url,
+                url,
                 json={"embeds": [embed]},
             ) as resp:
                 if resp.status not in (200, 204):
@@ -276,8 +288,9 @@ class AlertManager:
         else:
             color = 0xFFA500  # Orange for medium
 
-        # Title with signal type indicator (like friend's "Low Activity Wallet")
+        # Title with signal type indicator and confidence
         signal_label = self._get_primary_signal_label(signal)
+        confidence_emoji = self._get_confidence_emoji(signal.confidence)
         market_name = signal.market_title or f"Market {trade.market[:16]}..."
 
         # Determine outcome based on trade side
@@ -320,11 +333,18 @@ class AlertManager:
             },
         ]
 
-        # Always show Signals Detected
+        # Always show Signals Detected with confidence
         fields.append({
             "name": "Signals Detected",
             "value": self._format_signal_types(signal),
-            "inline": False,
+            "inline": True,
+        })
+
+        # Show Confidence Score prominently
+        fields.append({
+            "name": "Confidence Score",
+            "value": f"{confidence_emoji} **{signal.confidence:.0%}**",
+            "inline": True,
         })
 
         # Add cluster info if applicable
@@ -390,7 +410,7 @@ class AlertManager:
 
         # Build the embed
         embed = {
-            "title": f"{signal_label}",
+            "title": f"{signal_label} [{signal.confidence:.0%}]",
             "description": f"**{market_name}**\nOutcome: **{outcome}**",
             "color": color,
             "fields": fields,
@@ -429,19 +449,33 @@ class AlertManager:
             return "📊 Size Anomaly"
         return "⚠️ Alert"
 
+    def _get_confidence_emoji(self, confidence: float) -> str:
+        """Get emoji indicator based on confidence level."""
+        if confidence >= 0.85:
+            return "🔴"  # Very high - red hot
+        elif confidence >= 0.75:
+            return "🟠"  # High - orange
+        elif confidence >= 0.65:
+            return "🟡"  # Medium-high - yellow
+        elif confidence >= 0.55:
+            return "🟢"  # Medium - green
+        else:
+            return "⚪"  # Low - white
+
     def _build_telegram_message(self, signal: Signal) -> str:
         """Build an HTML-formatted Telegram message (styled like Polymarket Watch)."""
         trade = signal.trade
 
-        # Signal label header
+        # Signal label header with confidence
         signal_label = self._get_primary_signal_label(signal)
+        confidence_emoji = self._get_confidence_emoji(signal.confidence)
         market_name = signal.market_title or f"Market {trade.market[:16]}..."
         outcome = "Yes" if trade.side.value == "BUY" else "No"
 
         # Generate wallet nickname
         wallet_nickname = generate_wallet_nickname(trade.taker_address) if trade.taker_address else "Unknown"
 
-        header = f"<b>{signal_label}</b>\n\n<b>{market_name}</b>\nOutcome: <b>{outcome}</b>"
+        header = f"<b>{signal_label}</b> [{signal.confidence:.0%}]\n\n<b>{market_name}</b>\nOutcome: <b>{outcome}</b>"
 
         # Trade details in column format
         trade_info = (
@@ -455,8 +489,8 @@ class AlertManager:
             f"{f'{signal.wallet_win_rate:.0%}' if signal.wallet_win_rate else 'n/a'}"
         )
 
-        # Always show signals
-        signals_section = f"\n\n<b>Signals:</b> {self._format_signal_types_text(signal)}"
+        # Always show signals with confidence
+        signals_section = f"\n\n<b>Signals:</b> {self._format_signal_types_text(signal)}\n{confidence_emoji} <b>Confidence:</b> {signal.confidence:.0%}"
 
         # Always show extra info (even if n/a)
         extra_info = ""
