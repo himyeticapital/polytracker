@@ -224,10 +224,24 @@ async def fetch_top_markets(limit: int = 50) -> list:
     Fetch top markets by volume from Polymarket API.
 
     Returns list of asset IDs to subscribe to.
+    Filters out sports markets based on exclude_market_keywords config.
     """
     import aiohttp
+    import re
 
     logger.info(f"Fetching top {limit} markets by volume...")
+
+    # Sports keywords to filter out
+    sports_keywords = [
+        "Sports", "Football", "NBA", "NFL", "NHL", "MLB", "Soccer",
+        "Basketball", "Baseball", "Hockey", "Tennis", "Golf", "UFC",
+        "MMA", "Boxing", "Cricket", "Rugby", "Pacers", "Pistons",
+        "Lakers", "Celtics", "Warriors", "Bulls", "Heat", "Knicks",
+        "Patriots", "Cowboys", "Eagles", "Chiefs", "49ers", "Broncos",
+        "vs.", "Game", "Match", "Championship", "Super Bowl", "World Series",
+        "Stanley Cup", "Premier League", "La Liga", "Serie A", "Bundesliga"
+    ]
+    sports_pattern = re.compile("|".join(sports_keywords), re.IGNORECASE)
 
     try:
         timeout = aiohttp.ClientTimeout(total=30, connect=10)
@@ -248,8 +262,15 @@ async def fetch_top_markets(limit: int = 50) -> list:
 
                 markets = await resp.json()
                 asset_ids = []
+                filtered_count = 0
 
                 for market in markets:
+                    # Check if market title contains sports keywords
+                    title = market.get("question", "") or market.get("title", "")
+                    if sports_pattern.search(title):
+                        filtered_count += 1
+                        continue
+
                     # Get token IDs from market
                     # clobTokenIds can be a JSON string or a list
                     clob_token_ids = market.get("clobTokenIds", [])
@@ -263,7 +284,7 @@ async def fetch_top_markets(limit: int = 50) -> list:
                     if clob_token_ids:
                         asset_ids.extend(clob_token_ids)
 
-                logger.info(f"Found {len(asset_ids)} asset IDs from {len(markets)} markets")
+                logger.info(f"Found {len(asset_ids)} asset IDs from {len(markets) - filtered_count} markets (filtered {filtered_count} sports markets)")
                 return asset_ids
 
     except Exception as e:
