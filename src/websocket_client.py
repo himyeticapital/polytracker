@@ -280,5 +280,5 @@ class PolymarketWebSocket:
         return {
             **self.stats,
             "subscribed_assets": len(self.subscribed_assets),
-            "connected": self._ws is not None and self._ws.open,
+            "connected": self._ws is not None and not self._ws.close_code,
         }
