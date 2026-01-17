@@ -85,7 +85,7 @@ def parse_list_env(value: str) -> List[str]:
 def load_config() -> Config:
     """Load configuration from environment variables."""
     exclude_keywords = parse_list_env(
-        os.getenv("EXCLUDE_MARKET_KEYWORDS", '["Sports", "Football", "NBA", "NFL"]')
+        os.getenv("EXCLUDE_MARKET_KEYWORDS", '["Sports", "Football", "NBA", "NFL", "NHL", "MLB", "Soccer", "Basketball", "Baseball", "Hockey", "Tennis", "Golf", "UFC", "MMA", "Boxing", "Cricket", "Rugby"]')
     )
 
     return Config(
